@@ -13,6 +13,12 @@ typedef struct
     npy_intp *a;
 } npy_intp_vec;
 
+typedef struct
+{
+    size_t n, m;
+    npy_double *a;
+} npy_double_vec;
+
 
 /* A resizable vector with pointers to pygeos GeometryObjects */
 typedef struct

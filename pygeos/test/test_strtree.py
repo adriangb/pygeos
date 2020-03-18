@@ -1,6 +1,6 @@
 import math
 import pygeos
-from pygeos import box
+from pygeos import box, points, linestrings, multipoints, buffer, STRtree
 import pytest
 import numpy as np
 from numpy.testing import assert_array_equal
@@ -10,6 +10,35 @@ from .common import point, empty, assert_increases_refcount, assert_decreases_re
 # the distance between 2 points spaced at whole numbers along a diagonal
 HALF_UNIT_DIAG = math.sqrt(2) / 2
 EPS = 1e-9
+
+def brute_force_nearest_search(geometry, tree, report_distances):
+    """Brute force search for nearest by computing all distances.
+    """
+    left = np.atleast_1d(geometry)
+    right = np.atleast_1d(tree.geometries)
+    inds_left = []
+    inds_right = []
+    distances = []
+    for ind_left, geom in enumerate(left):
+        d = pygeos.distance(geom, right)
+        min_dist = np.min(d)
+        matches = np.arange(right.shape[0])[d==min_dist]
+        inds_left.extend([ind_left] * matches.shape[0])
+        inds_right.extend(matches)
+        distances.extend(d[d==min_dist])
+    if report_distances:
+        res = np.array([inds_left, inds_right, distances], dtype=float)
+    else:
+        res = np.array([inds_left, inds_right], dtype=int)
+    return res
+
+def check_nearest(geometry, tree):
+    """Compares tree results with brute force search.
+    """
+    for rep_dist in (True, False):
+        matches = tree.nearest(geometry, rep_dist)
+        true_matches = brute_force_nearest_search(geometry, tree, rep_dist)
+        assert_array_equal(matches, true_matches)
 
 
 @pytest.fixture
@@ -844,3 +873,112 @@ def test_query_bulk_intersects_lines(line_tree, geometry, expected):
 )
 def test_query_bulk_intersects_polygons(poly_tree, geometry, expected):
     assert_array_equal(poly_tree.query_bulk(geometry, predicate="intersects"), expected)
+
+@pytest.mark.parametrize("geometry", ["I am not a geometry", ["I am not a geometry"]])
+def test_nearest_no_geom(tree, geometry):
+    with pytest.raises(TypeError):
+        tree.nearest(geometry)
+
+
+@pytest.mark.parametrize("geometry,expected", [(None, [[], []]), ([None], [[], []])])
+def test_nearest_none(tree, geometry, expected):
+    assert_array_equal(tree.nearest(geometry), expected)
+
+
+@pytest.mark.parametrize("geometry,expected", [(empty, [[], []]), ([empty], [[], []])])
+def test_nearest_empty(tree, geometry, expected):
+    assert_array_equal(tree.nearest(geometry), expected)
+
+
+@pytest.mark.parametrize(
+    "geometry",
+    [
+        points(0.25, 0.25),
+        points(0.5, 0.5),
+        points(0.75, 0.75),
+        points(1, 1),
+        [points(1, 1), points(0, 0)],
+        [points(1, 1), points(0.25, 1)],
+        [points(-10, -10), points(100, 100)],
+        box(0, 0, 1, 1),
+        box(0.5, 0.5, 0.75, 0.75),
+        buffer(points(2.5, 2.5), HALF_UNIT_DIAG),
+        buffer(points(3, 3), HALF_UNIT_DIAG),
+        multipoints([[5, 5], [7, 7]]),
+        multipoints([[5.5, 5], [7, 7]]),
+        multipoints([[5, 7], [7, 5]]),
+    ],
+)
+def test_nearest_points(tree, geometry):
+    check_nearest(geometry, tree)
+
+@pytest.mark.parametrize(
+    "geometry",
+    [
+        points(0.5, 0.5),
+        points(2, 2),
+        box(0, 0, 1, 1),
+        box(0.5, 0.5, 1.5, 1.5),
+        (box(0, 0, 1, 1), box(3, 3, 5, 5)),
+        buffer(points(2.5, 2.5), HALF_UNIT_DIAG),
+        buffer(points(3, 3), HALF_UNIT_DIAG),
+        multipoints([[5, 5], [7, 7]]),
+        multipoints([[5.5, 5], [7, 7]]),
+        multipoints([[5, 7], [7, 5]]),
+    ],
+)
+def test_nearest_lines(line_tree, geometry):
+    check_nearest(geometry, line_tree)
+
+
+@pytest.mark.parametrize(
+    "geometry",
+    [
+        points(0, 0),
+        points(0.5, 0.5),
+        points(2, 2),
+        box(0, 0, 1, 1),
+        box(0.5, 0.5, 1.5, 1.5),
+        [box(0, 0, 1, 1), box(3, 3, 5, 5)],
+        buffer(points(2.5, 2.5), HALF_UNIT_DIAG),
+        buffer(points(3, 3), HALF_UNIT_DIAG),
+        multipoints([[5, 5], [7, 7]]),
+        multipoints([[5.5, 5], [7, 7]]),
+        multipoints([[5, 7], [7, 5]]),
+    ],
+)
+def test_nearest_polygons(poly_tree, geometry):
+    check_nearest(geometry, poly_tree)
+
+@pytest.mark.parametrize(
+    "geometry",
+    [
+        points(0.25, 0.25),
+        points(0.5, 0.5),
+        points(0.75, 0.75),
+        points(1, 1),
+        [points(1, 1), points(0, 0)],
+        [points(1, 1), points(0.25, 1)],
+        [points(-10, -10), points(100, 100)],
+        box(0, 0, 1, 1),
+        box(0.5, 0.5, 0.75, 0.75),
+        buffer(points(2.5, 2.5), HALF_UNIT_DIAG),
+        buffer(points(3, 3), HALF_UNIT_DIAG),
+        multipoints([[5, 5], [7, 7]]),
+        multipoints([[5.5, 5], [7, 7]]),
+        multipoints([[5, 7], [7, 5]]),
+    ],
+)
+def test_nearest_points_distances(tree, geometry):
+    """Tests different usages of `report_distances` param.
+    """
+    # True
+    expected = brute_force_nearest_search(geometry, tree, True)
+    assert_array_equal(tree.nearest(geometry, True), expected)
+    assert_array_equal(tree.nearest(geometry, report_distances=True), expected)
+    assert_array_equal(tree.nearest(geometry=geometry, report_distances=True), expected)
+    # False
+    expected = brute_force_nearest_search(geometry, tree, False)
+    assert_array_equal(tree.nearest(geometry, False), expected)
+    assert_array_equal(tree.nearest(geometry, report_distances=False), expected)
+    assert_array_equal(tree.nearest(geometry=geometry, report_distances=False), expected)

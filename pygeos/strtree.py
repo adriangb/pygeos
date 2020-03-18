@@ -181,3 +181,45 @@ class STRtree:
             predicate = BinaryPredicate[predicate].value
 
         return self._tree.query_bulk(geometry, predicate)
+
+    def nearest(self, geometry, report_distances=False):
+        """Returns the index of the nearest item in the tree for each input
+        geometry.
+        If multiple equidistant geometries are found as the nearest, all matches
+        are returned.
+        Any geometry that is None or empty in the input geometries is omitted from
+        the output.
+        Parameters
+        ----------
+        geometry : Geometry or array_like
+            Input geometries to query the tree.
+        Returns
+        -------
+        ndarray with shape (2, n)
+            The first subarray contains input geometry indexes.
+            The second subarray contains tree geometry indexes.
+        
+        Raises
+        -------
+        TypeError: 
+            In case of invalid geometry, wrong array dtype or
+            multidimensional input arrays.
+        RuntimeError:
+            In case of un-initialized tree or memory allocation errors.
+        Examples
+        --------
+        >>> import pygeos
+        >>> tree = pygeos.STRtree(pygeos.points(np.arange(10), np.arange(10)))
+        >>> tree.nearest(pygeos.points(1,1)).tolist()
+        [[0], [1]]
+        >>> tree.nearest([pygeos.box(0,0,2,2)]).tolist()
+        # all intersecting or contained geometries have 0 distance
+        # all equidistant matches are returned
+        [[0, 0, 0], [0, 1, 2]]
+        """
+
+        geometry = np.asarray(geometry)
+        if geometry.ndim == 0:
+            geometry = np.expand_dims(geometry, 0)
+
+        return self._tree.nearest(geometry, report_distances)
