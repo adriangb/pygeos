@@ -221,5 +221,4 @@ class STRtree:
         geometry = np.asarray(geometry)
         if geometry.ndim == 0:
             geometry = np.expand_dims(geometry, 0)
-
         return self._tree.nearest(geometry, report_distances)
